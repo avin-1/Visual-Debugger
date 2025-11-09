@@ -1,5 +1,3 @@
-// File: RecursionAnalytics.jsx (Restored Execution Statistics Panel)
-
 import React from "react";
 import {
   BarChart,
@@ -15,11 +13,9 @@ import {
 import ComplexityPanel from "./ComplexityPanel";
 
 const RecursionAnalytics = ({ debugData, currentStep }) => {
-  if (
-    !debugData ||
-    !debugData.debugStates ||
-    debugData.debugStates.length === 0
-  ) {
+  // `debugData` here is expected to be the backend result object:
+  // { debugStates: [...], callHierarchy: [...], complexity: {...} }
+  if (!debugData || !debugData.debugStates || debugData.debugStates.length === 0) {
     return (
       <div className="p-4">
         <h2 className="text-lg font-semibold mb-4">Recursion Analytics</h2>
@@ -50,12 +46,9 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
       returnValues.push({ function: state.function, value: state.returnValue });
     }
 
-    // Loop detection
+    // Loop detection heuristic: check source line string (best-effort)
     const lineStr = String(state.line || "");
-    if (
-      state.eventType === "step" &&
-      (lineStr.includes("for") || lineStr.includes("while"))
-    ) {
+    if (state.eventType === "step" && (lineStr.includes("for") || lineStr.includes("while"))) {
       loopDetails.push({
         line: lineStr,
         nesting_level: depth,
@@ -63,29 +56,61 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
     }
   });
 
-  const hasRecursion = debugData.callHierarchy?.some((call) => {
-    return (
-      call.function &&
-      debugData.callHierarchy.some(
-        (other) =>
-          other !== call &&
-          other.function === call.function &&
-          other.parent_id === call.call_id
-      )
+  // Prefer backend-provided complexity if available (backend analyzer is authoritative)
+  const backendComplexity = debugData.complexity;
+  let complexity = null;
+
+  if (backendComplexity && backendComplexity.time) {
+    complexity = {
+      time: backendComplexity.time,
+      space: backendComplexity.space || "O(1)",
+      has_recursion: !!backendComplexity.has_recursion,
+      has_loops: !!backendComplexity.has_loops,
+      loop_details: backendComplexity.loop_details || [],
+    };
+  } else {
+    // Fallback heuristic based on callHierarchy when backend complexity is missing
+    const ch = debugData.callHierarchy || [];
+
+    // Build parent -> children map
+    const parentMap = {};
+    ch.forEach((c) => {
+      if (c.parent_id) {
+        parentMap[c.parent_id] = parentMap[c.parent_id] || [];
+        parentMap[c.parent_id].push(c);
+      }
+    });
+
+    // Detect branching recursion:
+    // If a parent call has 2+ children that call the same function as the parent,
+    // that's a strong signal of exponential branching recursion (e.g., fib).
+    let branchingRecursion = false;
+    for (const parentId in parentMap) {
+      const children = parentMap[parentId];
+      const parentNode = ch.find((x) => x.call_id === parentId);
+      if (!parentNode) continue;
+      const sameFuncChildren = children.filter((c) => c.function === parentNode.function);
+      if (sameFuncChildren.length >= 2) {
+        branchingRecursion = true;
+        break;
+      }
+    }
+
+    // Detect simple recursion: any child whose function equals its parent's function
+    const hasRecursion = ch.some(
+      (call) => ch.some((other) => other.parent_id === call.call_id && other.function === call.function)
     );
-  });
 
-  const complexity = {
-    time: hasRecursion ? "O(2^n)" : loopDetails.length ? "O(n)" : "O(1)",
-    space: hasRecursion ? "O(n)" : "O(1)",
-    has_recursion: hasRecursion,
-    has_loops: loopDetails.length > 0,
-    loop_details: loopDetails.map((ld) => `Line: ${ld.line}`),
-  };
+    complexity = {
+      time: branchingRecursion ? "O(2^n)" : hasRecursion ? "O(n)" : loopDetails.length ? "O(n)" : "O(1)",
+      space: hasRecursion ? "O(n)" : "O(1)",
+      has_recursion: hasRecursion,
+      has_loops: loopDetails.length > 0,
+      loop_details: loopDetails.map((ld) => ({ line: ld.line, nesting_level: ld.nesting_level })),
+    };
+  }
 
-  const functionCallData = Object.entries(functionCalls).map(
-    ([name, count]) => ({ name, calls: count })
-  );
+  const functionCallData = Object.entries(functionCalls).map(([name, count]) => ({ name, calls: count }));
 
   return (
     <div className="space-y-6">
@@ -98,9 +123,7 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
               <div className="text-gray-500">Total Steps</div>
-              <div className="font-semibold">
-                {debugData.debugStates.length}
-              </div>
+              <div className="font-semibold">{debugData.debugStates.length}</div>
             </div>
             <div>
               <div className="text-gray-500">Max Stack Depth</div>
@@ -108,9 +131,7 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
             </div>
             <div>
               <div className="text-gray-500">Function Calls</div>
-              <div className="font-semibold">
-                {Object.values(functionCalls).reduce((a, b) => a + b, 0)}
-              </div>
+              <div className="font-semibold">{Object.values(functionCalls).reduce((a, b) => a + b, 0)}</div>
             </div>
             <div>
               <div className="text-gray-500">Return Values</div>
@@ -121,9 +142,7 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
 
         {/* Function Call Chart */}
         <div className="mb-6">
-          <h3 className="text-md font-medium mb-2">
-            Function Call Distribution
-          </h3>
+          <h3 className="text-md font-medium mb-2">Function Call Distribution</h3>
           <div className="bg-gray-50 p-4 rounded-lg">
             <BarChart width={500} height={200} data={functionCallData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -135,6 +154,7 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
             </BarChart>
           </div>
         </div>
+
         <div className="mb-6">
           <h3 className="text-md font-medium mb-2">Stack Depth Over Time</h3>
           <div className="bg-gray-50 p-4 rounded-lg">
@@ -144,12 +164,7 @@ const RecursionAnalytics = ({ debugData, currentStep }) => {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Line
-                type="monotone"
-                dataKey="depth"
-                stroke="#82ca9d"
-                activeDot={{ r: 8 }}
-              />
+              <Line type="monotone" dataKey="depth" stroke="#82ca9d" activeDot={{ r: 8 }} />
             </LineChart>
           </div>
         </div>

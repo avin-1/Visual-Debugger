@@ -270,10 +270,13 @@ def debug_python(code, input_data=None):
     simplified_states = simplify_debug_states(filtered_states)
     
     # Add call hierarchy information
+    # Add call hierarchy information and complexity analysis
     result = {
-        'debugStates': simplified_states,
-        'callHierarchy': tracer.call_history
-    }
+    'debugStates': simplified_states,
+    'callHierarchy': tracer.call_history,
+    'complexity': complexity  # include the time/space analysis
+}
+
     
     print(f"Debug completed - {len(simplified_states)} states")
     return result
@@ -454,74 +457,157 @@ def has_vars_changed(prev_vars, current_vars):
             
     return False
 
+# def analyze_complexity(code):
+#     """Analyze time and space complexity of Python code"""
+#     # Simple heuristic-based analysis
+#     complexity = {
+#         'time': 'O(1)',
+#         'space': 'O(1)',
+#         'has_recursion': False,
+#         'has_loops': False,
+#         'loop_details': []
+#     }
+    
+#     try:
+#         # Check for recursion
+#         if 'def ' in code and '(' in code and ')' in code:
+#             # Simple check for recursive calls
+#             function_lines = [line for line in code.split('\n') if line.strip().startswith('def ')]
+#             for func_line in function_lines:
+#                 func_name = func_line.split('def ')[1].split('(')[0].strip()
+#                 if f"{func_name}(" in code.replace(func_line, ''):
+#                     complexity['has_recursion'] = True
+#                     complexity['time'] = 'O(2^n)'  # Default for recursion
+#                     complexity['space'] = 'O(n)'   # Default stack depth for recursion
+        
+#         # Check for loops
+#         loops = ['for ', 'while ']
+#         loop_counts = {loop: code.count(loop) for loop in loops}
+#         total_loops = sum(loop_counts.values())
+        
+#         if total_loops > 0:
+#             complexity['has_loops'] = True
+#             complexity['loop_details'] = []
+            
+#             # Simple loop analysis
+#             if total_loops == 1:
+#                 complexity['time'] = 'O(n)'
+#             elif total_loops == 2:
+#                 complexity['time'] = 'O(n²)'
+#             else:
+#                 complexity['time'] = f'O(n^{total_loops})'
+                
+#             # Nested loop check
+#             lines = code.split('\n')
+#             indent_level = 0
+#             max_nesting = 0
+#             current_nesting = 0
+            
+#             for line in lines:
+#                 stripped = line.strip()
+#                 if any(stripped.startswith(loop) for loop in loops):
+#                     current_nesting += 1
+#                     max_nesting = max(max_nesting, current_nesting)
+#                     complexity['loop_details'].append({
+#                         'type': 'for' if stripped.startswith('for') else 'while',
+#                         'line': line,
+#                         'nesting_level': current_nesting
+#                     })
+#                 elif stripped.startswith('if ') or stripped.startswith('elif '):
+#                     # Not counting conditionals toward nesting for complexity
+#                     pass
+#                 else:
+#                     # Reset nesting when we exit a block
+#                     if stripped and not stripped.startswith(' ') and not stripped.startswith('#'):
+#                         current_nesting = 0
+            
+#             if max_nesting > 1:
+#                 complexity['time'] = f'O(n^{max_nesting})'
+                
+#     except Exception as e:
+#         print(f"Complexity analysis error: {str(e)}")
+    
+#     return complexity
+
+import ast
+
 def analyze_complexity(code):
-    """Analyze time and space complexity of Python code"""
-    # Simple heuristic-based analysis
+    """
+    Analyze time and space complexity using AST.
+    Detects real recursion and nested loops robustly.
+    """
     complexity = {
-        'time': 'O(1)',
-        'space': 'O(1)',
-        'has_recursion': False,
-        'has_loops': False,
-        'loop_details': []
+        "time": "O(1)",
+        "space": "O(1)",
+        "has_recursion": False,
+        "has_loops": False,
+        "loop_details": [],
+        "source": "ast-heuristic"
     }
-    
+
     try:
-        # Check for recursion
-        if 'def ' in code and '(' in code and ')' in code:
-            # Simple check for recursive calls
-            function_lines = [line for line in code.split('\n') if line.strip().startswith('def ')]
-            for func_line in function_lines:
-                func_name = func_line.split('def ')[1].split('(')[0].strip()
-                if f"{func_name}(" in code.replace(func_line, ''):
-                    complexity['has_recursion'] = True
-                    complexity['time'] = 'O(2^n)'  # Default for recursion
-                    complexity['space'] = 'O(n)'   # Default stack depth for recursion
-        
-        # Check for loops
-        loops = ['for ', 'while ']
-        loop_counts = {loop: code.count(loop) for loop in loops}
-        total_loops = sum(loop_counts.values())
-        
-        if total_loops > 0:
-            complexity['has_loops'] = True
-            complexity['loop_details'] = []
-            
-            # Simple loop analysis
-            if total_loops == 1:
-                complexity['time'] = 'O(n)'
-            elif total_loops == 2:
-                complexity['time'] = 'O(n²)'
-            else:
-                complexity['time'] = f'O(n^{total_loops})'
-                
-            # Nested loop check
-            lines = code.split('\n')
-            indent_level = 0
-            max_nesting = 0
-            current_nesting = 0
-            
-            for line in lines:
-                stripped = line.strip()
-                if any(stripped.startswith(loop) for loop in loops):
-                    current_nesting += 1
-                    max_nesting = max(max_nesting, current_nesting)
-                    complexity['loop_details'].append({
-                        'type': 'for' if stripped.startswith('for') else 'while',
-                        'line': line,
-                        'nesting_level': current_nesting
-                    })
-                elif stripped.startswith('if ') or stripped.startswith('elif '):
-                    # Not counting conditionals toward nesting for complexity
-                    pass
-                else:
-                    # Reset nesting when we exit a block
-                    if stripped and not stripped.startswith(' ') and not stripped.startswith('#'):
-                        current_nesting = 0
-            
-            if max_nesting > 1:
-                complexity['time'] = f'O(n^{max_nesting})'
-                
+        tree = ast.parse(code)
     except Exception as e:
-        print(f"Complexity analysis error: {str(e)}")
-    
+        print(f"AST parse error: {e}")
+        return complexity
+
+    recursive_funcs = set()
+    exponential_recursions = set()
+    max_loop_depth = 0
+
+    # Helper for recursion detection
+    def detect_recursion(func_node):
+        func_name = func_node.name
+        self_calls = 0
+        for subnode in ast.walk(func_node):
+            if isinstance(subnode, ast.Call):
+                if isinstance(subnode.func, ast.Name) and subnode.func.id == func_name:
+                    self_calls += 1
+        if self_calls == 1:
+            recursive_funcs.add(func_name)
+        elif self_calls > 1:
+            exponential_recursions.add(func_name)
+
+    # Recursive traversal for loops
+    def count_loops(node, depth=0):
+        nonlocal max_loop_depth
+        local_max = depth
+        if isinstance(node, (ast.For, ast.While)):
+            complexity["has_loops"] = True
+            local_max += 1
+            max_loop_depth = max(max_loop_depth, local_max)
+        for child in ast.iter_child_nodes(node):
+            count_loops(child, local_max)
+
+    # Walk through the AST
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            detect_recursion(node)
+        count_loops(node)
+
+    # --- Determine complexity ---
+    if exponential_recursions:
+        complexity["has_recursion"] = True
+        complexity["time"] = "O(2^n)"
+        complexity["space"] = "O(2^n)"
+    elif recursive_funcs:
+        complexity["has_recursion"] = True
+        complexity["time"] = "O(n)"
+        complexity["space"] = "O(n)"
+    elif complexity["has_loops"]:
+        if max_loop_depth == 1:
+            complexity["time"] = "O(n)"
+        elif max_loop_depth == 2:
+            complexity["time"] = "O(n^2)"
+        elif max_loop_depth == 3:
+            complexity["time"] = "O(n^3)"
+        else:
+            complexity["time"] = f"O(n^{max_loop_depth})"
+        complexity["space"] = "O(1)"
+    else:
+        complexity["time"] = "O(1)"
+        complexity["space"] = "O(1)"
+
     return complexity
+
+
