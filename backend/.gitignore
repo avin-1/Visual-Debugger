@@ -2,3 +2,5 @@ myenv
 .env
 __pycache__
 debugger_api.log
+venv/
+venv\
